@@ -1,0 +1,7 @@
+# Python >= 3.10 requerido
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+openai>=1.0.0
+pyyaml>=6.0
+matplotlib>=3.7.0
