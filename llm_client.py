@@ -82,25 +82,53 @@ class LLMClient:
 
     def _build_prompt(self, program_md, current_tuner, results_history, last_run_log, best_loss, simulator_source):
         return (
-            "You MUST use your file editing tools to rewrite tuner.py on disk. Do NOT just respond with code - actually edit the file.\n"
-            "Do NOT modify any file other than tuner.py.\n\n"
+            "CRITICAL RULES:\n"
+            "1. You MUST use your Write tool to replace tuner.py on disk. Do NOT just output code.\n"
+            "2. You MUST NOT modify any file other than tuner.py.\n"
+            "3. You MUST NOT run python, python3, or execute any scripts.\n"
+            "4. You MUST NOT read any files — all context is provided below.\n"
+            "5. Write the file immediately. Do not analyze or explain.\n\n"
             "You are an automotive engineer expert in ECU calibration. "
-            "Rewrite tuner.py with a new optimization strategy to MINIMIZE the Loss. "
-            "Loss = BSFC_avg - (alpha * Torque_avg) + (beta * Knock_max).\n\n"
-            f"=== INSTRUCTIONS (program.md) ===\n{program_md}\n\n"
+            "Rewrite tuner.py to MINIMIZE Loss = BSFC_avg - (alpha * Torque_avg) + (beta * Knock_max). "
+            f"alpha={self.config['loss_weights']['alpha']}, beta={self.config['loss_weights']['beta']}.\n\n"
+            f"=== INSTRUCTIONS ===\n{program_md}\n\n"
             f"=== CURRENT tuner.py ===\n{current_tuner}\n\n"
-            f"=== SIMULATOR (for reference only, DO NOT MODIFY) ===\n{simulator_source}\n\n"
+            f"=== SIMULATOR FORMULAS (DO NOT MODIFY simulator.py) ===\n"
+            "- rpm_norm = (rpm - 800) / 6200, load_norm = (load - 0.1) / 0.9\n"
+            "- injection_optimal = 3 + 12 * load_norm * (0.8 + 0.2 * rpm_norm)\n"
+            "- advance_optimal = 35 - 15 * rpm_norm * load_norm\n"
+            "- torque = 50 + 200*load_norm*(1-0.3*(rpm_norm-0.5)^2) - 2*(inj-inj_opt)^2 - 1.5*(adv-adv_opt)^2\n"
+            "- bsfc = 250 + 150*(1-load_norm)^2 + 5*(inj - inj_opt*1.1)^2\n"
+            "- knock_threshold = 30 - 20*load_norm*rpm_norm\n"
+            "- knock = max(0, 100*((adv-knock_thresh)/15)^2) * (1+load_norm)\n"
+            f"- Loss = mean(bsfc) - {self.config['loss_weights']['alpha']}*mean(torque) + {self.config['loss_weights']['beta']}*max(knock)\n"
+            "- Ranges: injection 1-20ms, advance 0-45°BTDC, 192 rows (16 RPM x 12 Load)\n"
+            "- rpm: np.linspace(800,7000,16), load: np.linspace(0.10,1.00,12)\n"
+            "- Out of range → Loss=9999. Optimal Loss < 600 possible.\n\n"
             f"=== EXPERIMENT HISTORY ===\n{results_history}\n\n"
             f"=== LAST RUN LOG ===\n{last_run_log}\n\n"
             f"=== BEST LOSS SO FAR: {best_loss} ===\n\n"
-            "Rewrite tuner.py with a new optimization strategy.\n"
-            "Include a comment on the first line with a brief description (max 80 chars).\n"
-            "Example: # Differential Evolution with RPM-dependent bounds\n"
-            "The file MUST define a function generate_map() that creates map.csv with 192 rows.\n"
-            "Allowed libraries: numpy, pandas, scipy, math, random, stdlib.\n"
-            "Do NOT use: torch, tensorflow, jax, scikit-learn.\n"
-            "Use your Edit or Write tool to save the new tuner.py."
+            "Write tuner.py with a new optimization strategy.\n"
+            "First line: comment with strategy description (max 80 chars). Example: # Differential Evolution with RPM-dependent bounds\n"
+            "MUST define generate_map() that creates map.csv with 192 rows.\n"
+            "Allowed: numpy, pandas, scipy, math, random, stdlib.\n"
+            "Forbidden: torch, tensorflow, jax, scikit-learn.\n"
+            "Use your Write tool NOW to save tuner.py."
         )
+
+    def _summarize_simulator(self, source):
+        formulas = []
+        formulas.append("RPM: 800-7000 (16 pts), Load: 0.10-1.00 (12 pts). 192 rows total.")
+        formulas.append("rpm_norm = (rpm - 800) / 6200, load_norm = (load - 0.1) / 0.9")
+        formulas.append("injection_optimal = 3 + 12 * load_norm * (0.8 + 0.2 * rpm_norm)")
+        formulas.append("advance_optimal = 35 - 15 * rpm_norm * load_norm")
+        formulas.append("torque = 50 + 200*load_norm*(1 - 0.3*(rpm_norm-0.5)^2) - 2*(inj-inj_opt)^2 - 1.5*(adv-adv_opt)^2")
+        formulas.append("bsfc = 250 + 150*(1-load_norm)^2 + 5*(inj - inj_opt*1.1)^2")
+        formulas.append("knock_threshold = 30 - 20*load_norm*rpm_norm")
+        formulas.append("knock = max(0, 100*((adv - knock_thresh)/15)^2) * (1 + load_norm)")
+        formulas.append("Loss = mean(bsfc) - 1.0*mean(torque) + 10.0*max(knock)")
+        formulas.append("Ranges: injection 1-20ms, advance 0-45deg. Out of range -> Loss=9999.")
+        return "\n".join(formulas)
 
     def _read_tuner(self):
         tuner_path = os.path.join(self.workdir, "tuner.py")
