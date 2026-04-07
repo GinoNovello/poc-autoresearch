@@ -3,7 +3,6 @@ import sys
 import csv
 import subprocess
 import yaml
-from datetime import datetime
 from pathlib import Path
 
 from llm_client import LLMClient
@@ -35,13 +34,6 @@ def get_commit_count():
         return int(result.stdout.strip())
     except ValueError:
         return 0
-
-
-def git_init_branch():
-    now = datetime.now().strftime("%Y-%m-%d-%H%M")
-    branch_name = f"autotuner/{now}"
-    subprocess.run(["git", "checkout", "-b", branch_name], capture_output=True)
-    return branch_name
 
 
 def git_commit_tuner(message):
@@ -198,9 +190,6 @@ def setup(config):
         if not os.path.exists(f):
             print(f"ERROR: {f} no existe")
             sys.exit(1)
-
-    branch = git_init_branch()
-    print(f"Branch creado: {branch}")
 
     init_results()
 
